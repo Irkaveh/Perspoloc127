@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>بازسازی سه‌بعدی تخت جمشید</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0a0a12;font-family:Tahoma,Arial,sans-serif;touch-action:none}
+canvas{display:block}
+#loading{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:#0a0a12;color:#ffd27a;font-size:19px;text-align:center}
+#loading small{display:block;margin-top:10px;color:#c9b99b;font-size:12px}
+#info{position:fixed;top:10px;right:10px;z-index:5;background:rgba(20,14,6,.68);color:#f0d9a6;padding:9px 13px;border:1px solid rgba(240,217,166,.3);border-radius:9px;font-size:12px;line-height:1.8;pointer-events:none;backdrop-filter:blur(4px)}
+#info b{color:#ffd27a;font-size:15px}
+#error{display:none;position:fixed;inset:0;z-index:30;align-items:center;justify-content:center;color:#f0d9a6;background:#0a0a12;text-align:center;padding:25px;box-sizing:border-box}
+#error div{max-width:460px;border:1px solid #66513a;border-radius:12px;padding:20px;background:#21180f}
+@media(max-width:600px){#info{font-size:10px;padding:7px 9px;top:7px;right:7px}#info b{font-size:13px}}
+</style>
+</head>
+<body>
+<div id="loading"><div>در حال آماده‌سازی تخت جمشید...<small id="loadText">بارگذاری موتور سه‌بعدی</small></div></div>
+<div id="error"><div><b>مدل بارگذاری نشد</b><p id="errorText"></p></div></div>
+<div id="info"><b>تخت جمشید (پارسه)</b><br>بازسازی سه‌بعدی تخیلی<br>درگ: چرخش · دو انگشت: زوم/حرکت</div>
+<script>
+/* نسخه سرعت‌محور: بدون سایه، هندسه کم‌حجم، InstancedMesh، ساخت مرحله‌ای */
+const THREE_URL='https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js';
+const CTRL_URL='https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js';
+function load(url){return new Promise((ok,no)=>{const s=document.createElement('script');s.src=url;s.onload=ok;s.onerror=no;document.head.appendChild(s)})}
+Promise.all([load(THREE_URL),load(CTRL_URL)]).then(start).catch(e=>{document.getElementById('loading').style.display='none';document.getElementById('error').style.display='flex';document.getElementById('errorText').textContent='اتصال به کتابخانه سه‌بعدی برقرار نشد. اینترنت را بررسی و صفحه را دوباره باز کنید.';console.error(e)});
+
+let scene,camera,renderer,controls;
+const $=id=>document.getElementById(id);
+
+function start(){
+ scene=new THREE.Scene();
+ scene.background=new THREE.Color(0x18243a);
+ scene.fog=new THREE.FogExp2(0xd9a066,.0028);
+ camera=new THREE.PerspectiveCamera(52,innerWidth/innerHeight,.5,2200);
+ camera.position.set(155,82,210);
+ renderer=new THREE.WebGLRenderer({antialias:false,powerPreference:'high-performance'});
+ renderer.setPixelRatio(1);
+ renderer.setSize(innerWidth,innerHeight,false);
+ document.body.appendChild(renderer.domElement);
+ controls=new THREE.OrbitControls(camera,renderer.domElement);
+ controls.target.set(0,15,0);controls.enableDamping=true;controls.dampingFactor=.055;controls.minDistance=25;controls.maxDistance=650;controls.maxPolarAngle=Math.PI*.49;controls.screenSpacePanning=true;controls.update();
+ scene.add(new THREE.HemisphereLight(0xffd9a0,0x332416,1.15));
+ const sun=new THREE.DirectionalLight(0xffcf8a,.8);sun.position.set(-220,180,120);scene.add(sun);
+ const M={stone:new THREE.MeshLambertMaterial({color:0xd8c19a}),dark:new THREE.MeshLambertMaterial({color:0xb89b6e}),platform:new THREE.MeshLambertMaterial({color:0xc9ad80}),gold:new THREE.MeshLambertMaterial({color:0xd4af37}),ground:new THREE.MeshLambertMaterial({color:0xa67c4e}),relief:new THREE.MeshLambertMaterial({color:0xc4a874})};
+ const G={box:new THREE.BoxGeometry(1,1,1),cyl:new THREE.CylinderGeometry(1,1,1,10),cap:new THREE.CylinderGeometry(1,1,1,10)};
+ const tmp=new THREE.Object3D();
+ function box(x,y,z,sx,sy,sz,mat){const m=new THREE.Mesh(G.box,mat);m.position.set(x,y,z);m.scale.set(sx,sy,sz);scene.add(m);return m}
+ function instanced(geo,mat,count){const m=new THREE.InstancedMesh(geo,mat,count);m.frustumCulled=false;return m}
+ // زمین و صفه: فقط چند آبجکت بزرگ
+ box(0,-1,0,1600,1,1600,M.ground);
+ box(0,4,0,320,8,260,M.platform);
+ // پلکان: یکپارچه‌تر و بسیار کم‌تعدادتر
+ const stairs=new THREE.Group();
+ for(let i=0;i<18;i++){
+   const s=new THREE.Mesh(G.box,M.stone);s.position.set(0,0.25+i*.42,140-i*2.1);s.scale.set(58,.84,2);stairs.add(s);
+ }
+ scene.add(stairs);
+ // ستون‌ها با InstancedMesh: به‌جای صدها Mesh، چند draw call
+ function columns(cx,cz,cols,rows,spacing,h,r,withBull){
+   const n=cols*rows;
+   const bases=instanced(G.cyl,M.dark,n), shafts=instanced(G.cyl,M.stone,n), caps=instanced(G.cap,withBull?M.gold:M.dark,n);
+   for(let i=0,k=0;i<cols;i++)for(let j=0;j<rows;j++,k++){
+     const x=cx+(i-(cols-1)/2)*spacing,z=cz+(j-(rows-1)/2)*spacing;
+     tmp.position.set(x,.7,z);tmp.scale.set(r*1.65,.9,r*1.65);tmp.updateMatrix();bases.setMatrixAt(k,tmp.matrix);
+     tmp.position.set(x,1.4+h/2,z);tmp.scale.set(r,r,h);tmp.updateMatrix();shafts.setMatrixAt(k,tmp.matrix);
+     tmp.position.set(x,1.4+h+0.7,z);tmp.scale.set(r*1.45,.8,r*1.45);tmp.updateMatrix();caps.setMatrixAt(k,tmp.matrix);
+   }
+   bases.instanceMatrix.needsUpdate=shafts.instanceMatrix.needsUpdate=caps.instanceMatrix.needsUpdate=true;
+   scene.add(bases,shafts,caps);
+ }
+ // بناهای اصلی
+ columns(-70,10,6,6,9,25,1.65,true);
+ columns(75,-30,10,10,6.2,17,1.25,false);
+ columns(0,-20,3,3,8,12,1.05,false);
+ // دروازه ملل؛ ساده و سریع
+ box(-22,19,95,4.2,22,4.2,M.stone);box(22,19,95,4.2,22,4.2,M.stone);box(0,29,95,50,3,8,M.stoneDark);
+ box(-40,17,95,3,18,16,M.stone);box(40,17,95,3,18,16,M.stone);
+ // چند عنصر شاخص به‌جای مدل پرجزئیات گاوهای بالدار
+ function guardian(x,flip){
+   const g=new THREE.Group();g.position.set(x,8,104);g.rotation.y=flip?Math.PI:0;
+   const body=new THREE.Mesh(G.box,M.relief);body.scale.set(10,8,4);body.position.y=0;g.add(body);
+   const head=new THREE.Mesh(G.box,M.relief);head.scale.set(3.5,4,4.2);head.position.set(5,3,0);g.add(head);
+   const wing=new THREE.Mesh(G.box,M.dark);wing.scale.set(2,8,12);wing.position.set(-2,5,0);g.add(wing);
+   scene.add(g);
+ }
+ guardian(-40,false);guardian(40,true);
+ // دیوار نمادین آپادانا
+ box(-70,13,-2,62,10,1.2,M.relief);
+ // چند قطعه سنگ؛ نه 40 قطعه با هندسه دوازده‌وجهی
+ const rockGeo=new THREE.DodecahedronGeometry(1,0);
+ for(let i=0;i<14;i++){
+   const rock=new THREE.Mesh(rockGeo,i%2?M.dark:M.stone);const a=Math.random()*Math.PI*2,d=65+Math.random()*80,s=.7+Math.random()*1.5;
+   rock.position.set(Math.cos(a)*d,8+s*.25,Math.sin(a)*d*.8);rock.scale.setScalar(s);scene.add(rock);
+ }
+ // کوه‌های دور: فقط 6 قطعه
+ const mg=new THREE.MeshLambertMaterial({color:0x5a4a3a});
+ for(let i=0;i<6;i++){const h=60+Math.random()*45,r=90+Math.random()*50,m=new THREE.Mesh(new THREE.ConeGeometry(r,h,5),mg),a=i/6*Math.PI*2;m.position.set(Math.cos(a)*750,h/2-10,Math.sin(a)*750);scene.add(m)}
+ // رندر را بلافاصله شروع کن؛ UI را بعد از اولین فریم آزاد کن
+ requestAnimationFrame(()=>{$('loading').style.display='none';});
+ addEventListener('resize',resize,{passive:true});
+ animate();
+}
+function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight,false)}
+function animate(){requestAnimationFrame(animate);controls.update();renderer.render(scene,camera)}
+</script>
+</body>
+</html>
